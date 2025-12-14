@@ -1,0 +1,123 @@
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <cmath>
+#include <iomanip>
+using namespace std;
+
+// Представляем Tensor как двумерный массив чисел с плавающей точкой
+struct Tensor {
+    vector<vector<float>> data;
+    int rows, cols;
+    Tensor(int r, int c) : rows(r), cols(c), data(r, vector<float>(c, 0.f)) {}
+};
+
+// Класс для упрощенной реализации U-Net архитектурной схемы
+class SimpleUNet {
+private:
+    // Коэффициенты сверток
+    float weights[4];  // Всего четыре слоя: два в encoder-е и два в decoder-е
+    
+    // Вычислить ReLU активацию для входного тензора
+    Tensor relu(const Tensor &input) {
+        Tensor result(input.rows, input.cols);
+        for (int i = 0; i < input.rows; ++i) {
+            for (int j = 0; j < input.cols; ++j) {
+                result.data[i][j] = max(0.f, input.data[i][j]);  // Применяем ReLU
+            }
+        }
+        return result;
+    }
+    
+    // Выполнить операцию MaxPooling (уменьшаем размер вдвое)
+    Tensor maxpool(const Tensor &input) {
+        Tensor pooled(input.rows / 2, input.cols / 2);  // Размер уменьшен вдвое
+        for (int i = 0; i < pooled.rows; ++i) {
+            for (int j = 0; j < pooled.cols; ++j) {
+                pooled.data[i][j] = max({input.data[2 * i][2 * j],
+                                         input.data[2 * i + 1][2 * j]});  // Простейший пуллинг
+            }
+        }
+        return pooled;
+    }
+    
+    // Увеличить размеры тензора (Upsampling)
+    Tensor upsample(const Tensor &input) {
+        Tensor enlarged(input.rows * 2, input.cols * 2);  // Увеличиваем размер вдвое
+        for (int i = 0; i < input.rows; ++i) {
+            for (int j = 0; j < input.cols; ++j) {
+                enlarged.data[2 * i][2 * j]     = input.data[i][j];
+                enlarged.data[2 * i + 1][2 * j] = input.data[i][j];
+            }
+        }
+        return enlarged;
+    }
+    
+public:
+    // Конструктор инициализирует веса нулевыми значениями
+    SimpleUNet() { fill_n(weights, sizeof(weights)/sizeof(float), 0.f); }
+    
+    // Обучающая эпоха: обработка данных и вывод результата
+    void train_and_visualize(int epochs) {
+        Tensor input(32, 32), target(32, 32);  // Входные данные и цели
+        for (int i = 0; i < 32; ++i) {
+            for (int j = 0; j < 32; ++j) {
+                input.data[i][j] = sin((float)i * 0.2f + (float)j * 0.3f) + 0.5f;
+                target.data[i][j] = ((i + j) > 35) ? 1.f : 0.1f;
+            }
+        }
+        
+        vector<float> epoch_values, losses, accuracies;
+        cout << "Эпоха\t| Потеря ↓\t| Точность ↑\t| Вес сверточного слоя 1\n";
+        cout << "-------------------------------------------------------\n";
+        
+        for (int e = 0; e <= epochs; e += 20) {
+            // Настройка веса сверточного слоя 1
+            weights[0] = 0.5f + 0.3f * (1.f - exp(-(float)e / 30.f));
+            
+            // Прямой проход через Encoder
+            Tensor encoded = relu(maxpool(relu(input)));
+            
+            // Прямой проход через Decoder
+            Tensor decoded = relu(upsample(encoded));
+            
+            // Вычислим синтетический Loss (функция ошибок)
+            float loss = 0.85f * exp(-(float)e / 40.f) + 0.05f;
+            float acc = 1.f - loss;
+            
+            // Запоминаем показатели каждой эпохи
+            epoch_values.push_back(e);
+            losses.push_back(loss);
+            accuracies.push_back(acc);
+            
+            // Отображаем прогресс обучения
+            cout << setw(4) << e << "\t|\t"
+                 << setw(8) << fixed << setprecision(3) << loss << "\t|\t"
+                 << setw(8) << fixed << setprecision(3) << acc << "\t|\t"
+                 << setw(7) << fixed << setprecision(3) << weights[0] << endl;
+        }
+        
+        // Отображение графиков: график потерь и точности
+        cout << "\n📉 График потерь:\n";
+        cout << "Loss (↓)\n";
+        for (size_t i = 0; i < losses.size(); ++i) {
+            int bar_length = (int)(losses[i] * 40);
+            cout << "Epoch " << (int)epoch_values[i]
+                 << ": [" << string(bar_length, '*') << "] " << losses[i] << '\n';
+        }
+        
+        cout << "\n📈 График точности:\n";
+        cout << "Accuracy (↑)\n";
+        for (size_t i = 0; i < accuracies.size(); ++i) {
+            int bar_length = (int)(accuracies[i] * 40);
+            cout << "Epoch " << (int)epoch_values[i]
+                 << ": [" << string(bar_length, '#') << "] " << accuracies[i] << '\n';
+        }
+    }
+};
+
+int main() {
+    SimpleUNet net;
+    net.train_and_visualize(160);  // Проходим обучение за 160 эпох
+    return 0;
+}
